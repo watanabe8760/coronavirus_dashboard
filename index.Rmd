@@ -1,0 +1,199 @@
+---
+title: "Coronavirus disease 2019"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(leaflet)
+library(leafpop)
+library(tidyverse)
+
+# colors
+confirmed_color <- "#3E4C59"
+death_color <- "#E12D39"
+
+# data
+library(coronavirus)
+update_datasets()
+data(coronavirus)
+
+total <-
+  coronavirus %>%
+  group_by(Country.Region, type) %>%
+  summarise(cases = sum(cases, na.rm = T)) %>%
+  pivot_wider(names_from = type,
+              values_from = cases) %>%
+  ungroup() %>%
+  arrange(desc(confirmed)) %>%
+  mutate(rank = dense_rank(desc(confirmed)))
+
+jp_confirmed <- total$confirmed[total$Country.Region == 'Japan']
+jp_death     <- total$death[total$Country.Region == 'Japan']
+jp_daily <-
+  coronavirus %>%
+  filter(Country.Region == 'Japan') %>%
+  select(date, type, cases) %>%
+  pivot_wider(names_from = type,
+              values_from = cases) %>%
+  mutate(confirmed_cum = cumsum(confirmed),
+         death_cum = cumsum(death))
+```
+
+Japan
+===============================================================================
+
+Row
+-------------------------------------------------------------------------------
+### confirmed {.value-box}
+```{r}
+valueBox(
+  value = paste(format(jp_confirmed, big.mark = ","), "", sep = " "),
+  caption = "Confirmed",
+  icon = "fas fa-user-md",
+  color = confirmed_color
+)
+```
+
+### death {.value-box}
+```{r}
+valueBox(
+  value = 
+    paste(
+      format(sum(jp_death, na.rm = TRUE), big.mark = ","), 
+      " (",
+      round(jp_death / jp_confirmed * 100, 1),
+      "%)",
+      sep = ""
+    ),
+  caption = "Death",
+  icon = "fas fa-skull",
+  color = death_color
+)
+```
+
+Row
+-------------------------------------------------------------------------------
+### **History**
+```{r}
+plotly::plot_ly(
+  data = jp_daily,
+  x = ~ date,
+  y = ~ confirmed,
+  type = "bar",
+  name = "Confirmed",
+  marker = list(color = confirmed_color)
+) %>%
+  plotly::add_trace(
+    y = ~ death_cum,
+    type = 'scatter',
+    mode = "lines+markers",
+    name = "Death (Total)",
+    marker = list(color = death_color)
+  ) %>%
+  plotly::layout(
+    title = "",
+    legend = list(x = 0.05, y = 1.00),
+    yaxis = list(title = ""),
+    xaxis = list(title = ""),
+    hovermode = "compare"
+  )
+```
+
+
+World
+===============================================================================
+### **Worst 30 countries as of `r format(max(coronavirus$date), "%d %B %Y")`**
+```{r}
+total %>%
+  filter(rank <= 30) %>%
+  plotly::plot_ly(
+    x = ~ reorder(Country.Region, desc(confirmed)),
+    y = ~ confirmed,
+    type = "bar",
+    name = "Confirmed",
+    marker = list(color = confirmed_color)
+  ) %>%
+  plotly::add_trace(
+    y = ~ death,
+    name = "Death",
+    marker = list(color = death_color)
+  ) %>%
+  plotly::layout(
+    barmode = "group",
+    legend = list(x = 0.95, y = 1.00),
+    yaxis = list(title = ""),
+    xaxis = list(title = ""),
+    hovermode = "compare"
+  )
+```
+
+
+World Map
+===============================================================================
+### World map
+```{r}
+total_per_loc <-
+  coronavirus %>%
+  filter(cases > 0) %>%
+  group_by(Country.Region, Province.State, Lat, Long, type) %>%
+  summarise(cases = sum(cases)) %>%
+  mutate(log_cases = 2.5 * log(cases)) %>%
+  ungroup()
+
+pal <- colorFactor(c(confirmed_color, death_color),
+                   domain = c("confirmed", "death"))
+map_object <-
+  leaflet() %>% 
+  addProviderTiles(providers$Esri.WorldGrayCanvas)
+
+walk(unique(total_per_loc$type), function(type_) {
+  map_object <<-
+    map_object %>%
+    addCircleMarkers(
+      data = total_per_loc %>% filter(type == type_),
+      lng = ~ Long,
+      lat = ~ Lat,
+      color = ~ pal(type),
+      stroke = FALSE,
+      fillOpacity = 0.8,
+      radius = ~ log_cases,
+      popup = leafpop::popupTable(
+        total_per_loc %>% filter(type == type_),
+        feature.id = FALSE,
+        row.numbers = FALSE,
+        zcol = c("type", "cases", "Country.Region", "Province.State")
+      ),
+      group = df,
+      labelOptions = labelOptions(
+        noHide = F,
+        direction = "auto"
+      )
+    )
+})
+
+map_object %>%
+  addLayersControl(overlayGroups = unique(total_per_loc$type),
+                   options = layersControlOptions(collapsed = FALSE))
+```
+
+
+About
+===============================================================================
+
+**Code**
+
+[github.com/watanabe8760/coronavirus_dashboard](https://github.com/watanabe8760/coronavirus_dashboard){target="_blank"}.
+
+**Data**
+
+[`{coronavirus}`](https://github.com/RamiKrispin/coronavirus){target="_blank"}
+
+
+**Update**
+
+The data is as of `r format(max(coronavirus$date), "%d %B %Y")` and the dashboard has been updated on `r format(Sys.time(), "%d %B %Y")`.
+
