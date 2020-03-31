@@ -13,8 +13,16 @@ library(leafpop)
 library(tidyverse)
 
 # colors
-confirmed_color <- "#3E4C59"
-death_color <- "#E12D39"
+confirmed_color <- "#627D98"
+active_color    <- "#E12D39"
+recovered_color <- "#07818F"
+death_color     <- "#3E4C59"
+color_def <- list(
+  confirmed = confirmed_color,
+  active    = active_color,
+  recovered = recovered_color,
+  death     = death_color
+)
 
 # data
 library(coronavirus)
@@ -22,16 +30,19 @@ data(coronavirus)
 
 total <-
   coronavirus %>%
-  group_by(Country.Region, type) %>%
+  group_by(Country.Region, Province.State, Lat, Long, type) %>%
   summarise(cases = sum(cases, na.rm = T)) %>%
   pivot_wider(names_from = type,
               values_from = cases) %>%
   ungroup() %>%
-  arrange(desc(confirmed)) %>%
-  mutate(rank = dense_rank(desc(confirmed)))
+  mutate(active = confirmed - recovered - death) %>%
+  arrange(desc(active)) %>%
+  mutate(rank = dense_rank(desc(active)))
 
 jp_confirmed <- total$confirmed[total$Country.Region == 'Japan']
+jp_recovered <- total$recovered[total$Country.Region == 'Japan']
 jp_death     <- total$death[total$Country.Region == 'Japan']
+jp_active    <- jp_confirmed - jp_death - jp_recovered
 jp_daily <-
   coronavirus %>%
   filter(Country.Region == 'Japan') %>%
@@ -39,7 +50,9 @@ jp_daily <-
   pivot_wider(names_from = type,
               values_from = cases) %>%
   mutate(confirmed_cum = cumsum(confirmed),
-         death_cum = cumsum(death))
+         death_cum = cumsum(death),
+         recovered_cum = cumsum(recovered),
+         active_cum = confirmed_cum - death_cum - recovered_cum)
 ```
 
 Japan
@@ -50,10 +63,31 @@ Row
 ### confirmed {.value-box}
 ```{r}
 valueBox(
-  value = paste(format(jp_confirmed, big.mark = ","), "", sep = " "),
-  caption = "Confirmed",
+  value = format(jp_confirmed, big.mark = ","),
+  caption = "Total cases",
   icon = "fas fa-user-md",
   color = confirmed_color
+)
+```
+
+### active {.value-box}
+```{r}
+valueBox(
+  value = format(jp_active, big.mark = ","),
+  caption = "Active",
+  icon = "fas fa-procedures",
+  color = active_color
+)
+```
+
+
+### recovered {.value-box}
+```{r}
+valueBox(
+  value = format(jp_recovered, big.mark = ","),
+  caption = "Recovered",
+  icon = "fas fa-heart",
+  color = recovered_color
 )
 ```
 
@@ -62,7 +96,7 @@ valueBox(
 valueBox(
   value = 
     paste(
-      format(sum(jp_death, na.rm = TRUE), big.mark = ","), 
+      format(jp_death, big.mark = ","), 
       " (",
       round(jp_death / jp_confirmed * 100, 1),
       "%)",
@@ -74,23 +108,32 @@ valueBox(
 )
 ```
 
+
 Row
 -------------------------------------------------------------------------------
-### **History**
+### **Number of patients in Japan**
 ```{r}
-plotly::plot_ly(
-  data = jp_daily,
-  x = ~ date,
-  y = ~ confirmed,
-  type = "bar",
-  name = "Confirmed",
-  marker = list(color = confirmed_color)
-) %>%
-  plotly::add_trace(
+jp_daily %>%
+  plotly::plot_ly(
+    x = ~ date,
+    y = ~ confirmed,
+    type = "bar",
+    name = "New case",
+    marker = list(color = confirmed_color)
+  ) %>%
+  plotly::add_paths(
+    y = ~ active_cum,
+    name = "Active",
+    marker = list(color = active_color)
+  ) %>%
+  plotly::add_paths(
+    y = ~ recovered_cum,
+    name = "Recovered",
+    marker = list(color = recovered_color)
+  ) %>%
+  plotly::add_paths(
     y = ~ death_cum,
-    type = 'scatter',
-    mode = "lines+markers",
-    name = "Death (Total)",
+    name = "Death",
     marker = list(color = death_color)
   ) %>%
   plotly::layout(
@@ -105,16 +148,21 @@ plotly::plot_ly(
 
 World
 ===============================================================================
-### **Worst 30 countries as of `r format(max(coronavirus$date), "%d %B %Y")`**
+### **Number of cases as of `r format(max(coronavirus$date), "%d %B %Y")`**
 ```{r}
 total %>%
   filter(rank <= 30) %>%
   plotly::plot_ly(
-    x = ~ reorder(Country.Region, desc(confirmed)),
-    y = ~ confirmed,
+    x = ~ reorder(Country.Region, desc(active)),
+    y = ~ active,
     type = "bar",
-    name = "Confirmed",
-    marker = list(color = confirmed_color)
+    name = "Active",
+    marker = list(color = active_color)
+  ) %>%
+  plotly::add_trace(
+    y = ~ recovered,
+    name = "Recovered",
+    marker = list(color = recovered_color)
   ) %>%
   plotly::add_trace(
     y = ~ death,
@@ -135,38 +183,40 @@ World Map
 ===============================================================================
 ### World map
 ```{r}
-total_per_loc <-
-  coronavirus %>%
-  filter(cases > 0) %>%
-  group_by(Country.Region, Province.State, Lat, Long, type) %>%
-  summarise(cases = sum(cases)) %>%
-  mutate(log_cases = 2.5 * log(cases)) %>%
-  ungroup()
+total_4_map <-
+  total %>%
+  select(-confirmed, -rank) %>%
+  pivot_longer(cols = c('active', 'recovered', 'death'),
+               names_to = 'type',
+               values_to = 'cases') %>%
+  mutate(log_cases = case_when(cases <= 0   ~ 0,
+                               is.na(cases) ~ 0,
+                               TRUE         ~ 3 * log(cases)))
 
-pal <- colorFactor(c(confirmed_color, death_color),
-                   domain = c("confirmed", "death"))
+types_rendered <- c('active', 'recovered', 'death')
+
 map_object <-
   leaflet() %>% 
   addProviderTiles(providers$Esri.WorldGrayCanvas)
 
-walk(unique(total_per_loc$type), function(type_) {
+walk(types_rendered, function(type_) {
   map_object <<-
     map_object %>%
     addCircleMarkers(
-      data = total_per_loc %>% filter(type == type_),
+      data = total_4_map %>% filter(type == type_),
       lng = ~ Long,
       lat = ~ Lat,
-      color = ~ pal(type),
+      color = ~ color_def[[type_]],
       stroke = FALSE,
       fillOpacity = 0.8,
       radius = ~ log_cases,
       popup = leafpop::popupTable(
-        total_per_loc %>% filter(type == type_),
+        total_4_map %>% filter(type == type_),
         feature.id = FALSE,
         row.numbers = FALSE,
         zcol = c("type", "cases", "Country.Region", "Province.State")
       ),
-      group = df,
+      group = type_,
       labelOptions = labelOptions(
         noHide = F,
         direction = "auto"
@@ -175,8 +225,9 @@ walk(unique(total_per_loc$type), function(type_) {
 })
 
 map_object %>%
-  addLayersControl(overlayGroups = unique(total_per_loc$type),
-                   options = layersControlOptions(collapsed = FALSE))
+  addLayersControl(overlayGroups = types_rendered,
+                   options = layersControlOptions(collapsed = FALSE)) %>%
+  hideGroup(types_rendered[-1])
 ```
 
 
