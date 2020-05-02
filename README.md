@@ -9,7 +9,9 @@ The data is from
 To reflect the latest data to the dashboard, execute a couple of commands from R console manually as below.
 
 ```R
-coronavirus::update_datasets()
+
+coronavirus::update_dataset()
+
 > Updates are available on the coronavirus Dev version, do you want to update? n/Y
 Y
 
@@ -20,6 +22,7 @@ Y
 
 # create the new dashboard (docs/index.html)
 rmarkdown::render_site()
+
 ```
 
 <img src="https://ramikrispin.github.io/coronavirus/reference/figures/coronavirus.png" width="20%" />
