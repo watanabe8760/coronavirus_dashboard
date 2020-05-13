@@ -30,7 +30,7 @@ data(coronavirus)
 
 total <-
   coronavirus %>%
-  group_by(Country.Region, Province.State, Lat, Long, type) %>%
+  group_by(country, province, lat, long, type) %>%
   summarise(cases = sum(cases, na.rm = T)) %>%
   pivot_wider(names_from = type,
               values_from = cases) %>%
@@ -39,13 +39,13 @@ total <-
   arrange(desc(active)) %>%
   mutate(rank = dense_rank(desc(active)))
 
-jp_confirmed <- total$confirmed[total$Country.Region == 'Japan']
-jp_recovered <- total$recovered[total$Country.Region == 'Japan']
-jp_death     <- total$death[total$Country.Region == 'Japan']
+jp_confirmed <- total$confirmed[total$country == 'Japan']
+jp_recovered <- total$recovered[total$country == 'Japan']
+jp_death     <- total$death[total$country == 'Japan']
 jp_active    <- jp_confirmed - jp_death - jp_recovered
 jp_daily <-
   coronavirus %>%
-  filter(Country.Region == 'Japan') %>%
+  filter(country == 'Japan') %>%
   select(date, type, cases) %>%
   pivot_wider(names_from = type,
               values_from = cases) %>%
@@ -153,7 +153,7 @@ World
 total %>%
   filter(rank <= 30) %>%
   plotly::plot_ly(
-    x = ~ reorder(Country.Region, desc(active)),
+    x = ~ reorder(country, desc(active)),
     y = ~ active,
     type = "bar",
     name = "Active",
@@ -204,8 +204,8 @@ walk(types_rendered, function(type_) {
     map_object %>%
     addCircleMarkers(
       data = total_4_map %>% filter(type == type_),
-      lng = ~ Long,
-      lat = ~ Lat,
+      lng = ~ long,
+      lat = ~ lat,
       color = ~ color_def[[type_]],
       stroke = FALSE,
       fillOpacity = 0.8,
@@ -214,7 +214,7 @@ walk(types_rendered, function(type_) {
         total_4_map %>% filter(type == type_),
         feature.id = FALSE,
         row.numbers = FALSE,
-        zcol = c("type", "cases", "Country.Region", "Province.State")
+        zcol = c("type", "cases", "country", "province")
       ),
       group = type_,
       labelOptions = labelOptions(
