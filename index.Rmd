@@ -191,7 +191,7 @@ total_4_map <-
                values_to = 'cases') %>%
   mutate(log_cases = case_when(cases <= 0   ~ 0,
                                is.na(cases) ~ 0,
-                               TRUE         ~ 3 * log(cases)))
+                               TRUE         ~ 2 * log(cases)))
 
 types_rendered <- c('active', 'recovered', 'death')
 
